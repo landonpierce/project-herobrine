@@ -1,0 +1,207 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.10.61.36676",
+      "templateHash": "204239108750343065"
+    }
+  },
+  "parameters": {
+    "rg_location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]"
+    },
+    "dnsDomainName": {
+      "type": "string",
+      "defaultValue": "herobrine"
+    },
+    "region": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]"
+    }
+  },
+  "variables": {
+    "storName": "[format('herobrine{0}', uniqueString(resourceGroup().id))]",
+    "storName2": "[format('funcstor{0}', uniqueString(resourceGroup().id))]",
+    "functionName": "[format('func-{0}', uniqueString(resourceGroup().id))]",
+    "EventGridName": "[format('evegridy-{0}', uniqueString(resourceGroup().id))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2019-11-01",
+      "name": "examplevnet-2",
+      "location": "[parameters('rg_location')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "10.0.0.0/16"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "Subnet-1",
+            "properties": {
+              "addressPrefix": "10.0.0.0/24"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2017-06-01",
+      "name": "[format('IP{0}', uniqueString(resourceGroup().id))]",
+      "location": "[parameters('rg_location')]",
+      "properties": {
+        "publicIPAllocationMethod": "Dynamic",
+        "dnsSettings": {
+          "domainNameLabel": "[parameters('dnsDomainName')]",
+          "fqdn": "[format('{0}{1}', parameters('dnsDomainName'), parameters('region'))]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2022-03-01",
+      "name": "[format('asp-{0}', uniqueString(resourceGroup().id))]",
+      "location": "[parameters('rg_location')]",
+      "kind": "app,linux",
+      "properties": {
+        "reserved": true
+      },
+      "sku": {
+        "tier": "Dynamic",
+        "name": "Y1"
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2021-02-01",
+      "name": "[variables('storName')]",
+      "location": "[parameters('region')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "encryption": {
+          "keySource": "Microsoft.Storage",
+          "services": {
+            "blob": {
+              "enabled": true
+            },
+            "file": {
+              "enabled": true
+            },
+            "queue": {
+              "enabled": true
+            },
+            "table": {
+              "enabled": true
+            }
+          }
+        },
+        "allowBlobPublicAccess": false
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2021-02-01",
+      "name": "[variables('storName2')]",
+      "location": "[parameters('region')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "encryption": {
+          "keySource": "Microsoft.Storage",
+          "services": {
+            "blob": {
+              "enabled": true
+            },
+            "file": {
+              "enabled": true
+            },
+            "queue": {
+              "enabled": true
+            },
+            "table": {
+              "enabled": true
+            }
+          }
+        },
+        "allowBlobPublicAccess": false
+      }
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2021-01-15",
+      "name": "[variables('functionName')]",
+      "kind": "functionapp,linux",
+      "location": "[parameters('rg_location')]",
+      "properties": {
+        "enabled": true,
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', format('asp-{0}', uniqueString(resourceGroup().id)))]",
+        "siteConfig": {
+          "numberOfWorkers": 1,
+          "linuxFxVersion": "python|3.9",
+          "acrUseManagedIdentityCreds": false,
+          "alwaysOn": false,
+          "http20Enabled": false,
+          "functionAppScaleLimit": 200,
+          "minimumElasticInstanceCount": 0,
+          "appSettings": [
+            {
+              "name": "AzureWebJobsStorage",
+              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};EndpointSuffix={1};AccountKey={2}', variables('storName2'), environment().suffixes.storage, listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storName2')), '2021-02-01').keys[0].value)]"
+            },
+            {
+              "name": "FUNCTIONS_EXTENSION_VERSION",
+              "value": "~4"
+            },
+            {
+              "name": "FUNCTIONS_WORKER_RUNTIME",
+              "value": "python"
+            },
+            {
+              "name": "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING",
+              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};EndpointSuffix={1};AccountKey={2}', variables('storName2'), environment().suffixes.storage, listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storName2')), '2021-02-01').keys[0].value)]"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/serverfarms', format('asp-{0}', uniqueString(resourceGroup().id)))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storName2'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/sites/extensions",
+      "apiVersion": "2021-03-01",
+      "name": "[format('{0}/{1}', variables('functionName'), 'zipdeploy')]",
+      "properties": {
+        "packageUri": "https://github.com/landonpierce/project-herobrine/releases/download/v0.1/beta.zip"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('functionName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.EventGrid/topics",
+      "apiVersion": "2022-06-15",
+      "name": "[variables('EventGridName')]",
+      "location": "[parameters('rg_location')]",
+      "properties": {
+        "inputSchema": "EventGridSchema",
+        "publicNetworkAccess": "Enabled",
+        "inboundIpRules": [],
+        "disableLocalAuth": false,
+        "dataResidencyBoundary": "WithinGeopair"
+      }
+    }
+  ]
+}
