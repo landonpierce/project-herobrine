@@ -48,7 +48,14 @@ def main(req: func.HttpRequest, outputEvent: func.Out[func.EventGridOutputEvent]
     respond_to_discord_interaction()
 
     if(verify_signature_headers(req.headers, req.get_body())):
-        return func.HttpResponse(json.dumps({"type": 1}), status_code=200, mimetype="application/json")
+        return func.HttpResponse(json.dumps(
+            {
+                "type": 4, 
+                "data": {
+                    "content": "Your server has started:)"
+                }
+            }
+        ), status_code=200, mimetype="application/json")
     else:
         logging.info("Invalid request signature")
         return func.HttpResponse("invalid request signature", status_code=401)
