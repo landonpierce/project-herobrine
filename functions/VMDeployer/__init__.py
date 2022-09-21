@@ -4,10 +4,8 @@ import azure.functions as func
 import os
 from azure.mgmt.resource import ResourceManagementClient
 from azure.identity import DefaultAzureCredential
-from dotenv import load_dotenv
 
 def create_resource_group():
-    load_dotenv()
     # Acquire a credential object using CLI-based authentication.
     credential = DefaultAzureCredential(exclude_visual_studio_code_credential=True)
 
