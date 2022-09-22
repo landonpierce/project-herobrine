@@ -27,4 +27,7 @@ sudo cp ./azcopy_linux_amd64_10.16.0/azcopy /usr/bin/
 
 #Authorize Azcopy
 
+azcopy login --identity
+azcopy copy https://{storageAccountName}.blob.core.windows.net/{pathToWorld/world.tar.gz} ./  ##need to handle case where file isn't found i.e backup doesn't exist yet
+
 
