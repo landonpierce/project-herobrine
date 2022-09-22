@@ -1,4 +1,16 @@
 #!/bin/bash
+#Arguments
+
+#set -e
+
+export AZURE_STORAGE_ACCOUNT_NAME="$1"
+export PATH_TO_WORLD="$2"
+
+#echo "storage account name is $AZURE_STORAGE_ACCOUNT_NAME"
+#echo "path to world is $PATH_TO_WORLD"
+
+
+
 
 #Install docker
 sudo apt-get update -y
@@ -27,7 +39,10 @@ sudo cp ./azcopy_linux_amd64_10.16.0/azcopy /usr/bin/
 
 #Authorize Azcopy
 
-azcopy login --identity
-azcopy copy https://{storageAccountName}.blob.core.windows.net/{pathToWorld/world.tar.gz} ./  ##if file isn't found, nothing happens
 
+
+sudo azcopy login --identity
+sudo azcopy copy https://$AZURE_STORAGE_ACCOUNT_NAME.blob.core.windows.net/$PATH_TO_WORLD/world.tar.gz ./  ##if file isn't found, nothing happens
+
+#Add error message if file isn't found?
 
