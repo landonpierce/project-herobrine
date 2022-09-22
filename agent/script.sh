@@ -1,8 +1,7 @@
 #!/bin/bash
 #Arguments
 
-#set -e
-
+#Usage: ./script.sh [account_name] [path]
 export AZURE_STORAGE_ACCOUNT_NAME="$1"
 export PATH_TO_WORLD="$2"
 
@@ -44,5 +43,5 @@ sudo cp ./azcopy_linux_amd64_10.16.0/azcopy /usr/bin/
 sudo azcopy login --identity
 sudo azcopy copy https://$AZURE_STORAGE_ACCOUNT_NAME.blob.core.windows.net/$PATH_TO_WORLD/world.tar.gz ./  ##if file isn't found, nothing happens
 
-#Add error message if file isn't found?
+
 
