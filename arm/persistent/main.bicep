@@ -1,10 +1,20 @@
-param rg_location string = resourceGroup().location
-param dnsDomainName string = 'herobrine'
-param region string = resourceGroup().location
+param location string = resourceGroup().location
+
+@description('The DNS label to set on the dynamic IP address. FQDN will be {dnslabel}.{region}.cloudapp.azure.com')
+param dnsDomainName string 
+
+@secure()
+param vmAdminUserName string = 'minecraftadmin'
+
+@secure()
+param vmAdminPassword string
+
+param storageRoleAssignmentId string = newGuid() 
+
 
 resource virtualNetwork 'Microsoft.Network/virtualNetworks@2019-11-01' = {
-  name: 'examplevnet-2'
-  location: rg_location
+  name: 'mc-vm-vnet-01'
+  location: location
   properties: {
     addressSpace: {
       addressPrefixes: [
@@ -24,19 +34,19 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2019-11-01' = {
 
 resource ipAddress 'Microsoft.Network/publicIPAddresses@2017-06-01' = {
   name: 'IP${uniqueString(resourceGroup().id)}'
-  location: rg_location
+  location: location
   properties: {
     publicIPAllocationMethod: 'Dynamic'
     dnsSettings: {
       domainNameLabel: dnsDomainName
-      fqdn: '${dnsDomainName}${region}'
+      fqdn: '${dnsDomainName}${location}'
     }
   }
 }
 
 resource AppService 'Microsoft.Web/serverfarms@2022-03-01' = {
   name: 'asp-${uniqueString(resourceGroup().id)}'
-  location: rg_location
+  location: location
   kind: 'app,linux'
   properties: {
     reserved: true
@@ -47,10 +57,16 @@ resource AppService 'Microsoft.Web/serverfarms@2022-03-01' = {
   }
 }
 
+var managedIdentityName = 'mc-vm-managed-identity-01'
+resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2022-01-31-preview' = {
+  name: managedIdentityName
+  location: location
+}
+
 var storName = 'herobrine${uniqueString(resourceGroup().id)}'
 resource worldStorage 'Microsoft.Storage/storageAccounts@2021-02-01' = {
   name: storName
-  location: region
+  location: location
   sku: {
     name: 'Standard_LRS'
   }
@@ -76,10 +92,28 @@ resource worldStorage 'Microsoft.Storage/storageAccounts@2021-02-01' = {
     allowBlobPublicAccess: false
   }
 }
+
+@description('This is the built-in Contributor role. See https://docs.microsoft.com/azure/role-based-access-control/built-in-roles#contributor')
+resource contributorRoleDefinition 'Microsoft.Authorization/roleDefinitions@2018-01-01-preview' existing = {
+  scope: subscription()
+  name: 'b24988ac-6180-42a0-ab88-20f7382dd24c'
+}
+
+var roleAssignmentGuid = guid(resourceGroup().id, contributorRoleDefinition.id) 
+resource storageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: roleAssignmentGuid
+  scope: worldStorage
+  properties: {
+    principalId: managedIdentity.properties.principalId
+    roleDefinitionId: contributorRoleDefinition.id 
+    principalType: 'ServicePrincipal'
+  }
+}
+
 var storName2 = 'funcstor${uniqueString(resourceGroup().id)}'
 resource functionStorage 'Microsoft.Storage/storageAccounts@2021-02-01' = {
   name: storName2
-  location: region
+  location: location
   sku: {
     name: 'Standard_LRS'
   }
@@ -110,7 +144,7 @@ var functionName = 'func-${uniqueString(resourceGroup().id)}'
 resource Function 'Microsoft.Web/sites@2021-01-15' = {
   name: functionName
   kind: 'functionapp,linux'
-  location: rg_location
+  location: location
   properties: {
     enabled: true
     serverFarmId: AppService.id
@@ -139,6 +173,26 @@ resource Function 'Microsoft.Web/sites@2021-01-15' = {
             name: 'WEBSITE_CONTENTAZUREFILECONNECTIONSTRING'
             value: 'DefaultEndpointsProtocol=https;AccountName=${functionStorage.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${listKeys(functionStorage.id, functionStorage.apiVersion).keys[0].value}'
           }
+          {
+            name: 'IpAddressResourceId'
+            value: ipAddress.id
+          }
+          {
+            name: 'ManagedIdentityResourceId'
+            value: managedIdentity.id
+          }
+          {
+            name: 'WorldStorageAccountName'
+            value: worldStorage.name
+          }
+          {
+            name: 'VMAdminUserName'
+            value: vmAdminUserName
+          }
+          {
+            name: 'VMAdminPassword'
+            value: vmAdminPassword
+          }
         ]
     }
   }
@@ -157,7 +211,7 @@ resource msDeploy 'Microsoft.Web/sites/extensions@2021-03-01' = {
 var EventGridName = 'evegridy-${uniqueString(resourceGroup().id)}'
 resource EventGrid 'Microsoft.EventGrid/topics@2022-06-15' = {
   name: EventGridName
-  location: rg_location
+  location: location
   properties: {
     inputSchema: 'EventGridSchema'
     publicNetworkAccess: 'Enabled'
@@ -167,13 +221,15 @@ resource EventGrid 'Microsoft.EventGrid/topics@2022-06-15' = {
   }
 }
 
-var eventSubName = '${EventGrid.id}/EventSub'
+var eventSubName = 'vmdeploysub'
 resource eventSub 'Microsoft.EventGrid/topics/eventSubscriptions@2022-06-15' = {
   name: eventSubName
+  parent: EventGrid
+  dependsOn: [msDeploy]
   properties: {
     destination: {
         properties: {
-            resourceId: '${Function}/functions/VMDeployer'
+            resourceId: '${Function.id}/functions/VMDeployer'
             maxEventsPerBatch: 1
             preferredBatchSizeInKilobytes: 64
         }
@@ -186,3 +242,7 @@ resource eventSub 'Microsoft.EventGrid/topics/eventSubscriptions@2022-06-15' = {
   }
 }
 }
+
+
+// output managedIdentityResourceId string = managedIdentity.id
+// output ipAddressResourceId string = ipAddress.id

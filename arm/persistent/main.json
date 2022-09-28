@@ -4,36 +4,48 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.10.61.36676",
-      "templateHash": "204239108750343065"
+      "version": "0.7.4.23292",
+      "templateHash": "10064221060741284503"
     }
   },
   "parameters": {
-    "rg_location": {
+    "location": {
       "type": "string",
       "defaultValue": "[resourceGroup().location]"
     },
     "dnsDomainName": {
       "type": "string",
-      "defaultValue": "herobrine"
+      "metadata": {
+        "description": "The DNS label to set on the dynamic IP address. FQDN will be {dnslabel}.{region}.cloudapp.azure.com"
+      }
     },
-    "region": {
+    "vmAdminUserName": {
+      "type": "secureString",
+      "defaultValue": "minecraftadmin"
+    },
+    "vmAdminPassword": {
+      "type": "secureString"
+    },
+    "storageRoleAssignmentId": {
       "type": "string",
-      "defaultValue": "[resourceGroup().location]"
+      "defaultValue": "[newGuid()]"
     }
   },
   "variables": {
+    "managedIdentityName": "mc-vm-managed-identity-01",
     "storName": "[format('herobrine{0}', uniqueString(resourceGroup().id))]",
+    "roleAssignmentGuid": "[guid(resourceGroup().id, subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c'))]",
     "storName2": "[format('funcstor{0}', uniqueString(resourceGroup().id))]",
     "functionName": "[format('func-{0}', uniqueString(resourceGroup().id))]",
-    "EventGridName": "[format('evegridy-{0}', uniqueString(resourceGroup().id))]"
+    "EventGridName": "[format('evegridy-{0}', uniqueString(resourceGroup().id))]",
+    "eventSubName": "vmdeploysub"
   },
   "resources": [
     {
       "type": "Microsoft.Network/virtualNetworks",
       "apiVersion": "2019-11-01",
-      "name": "examplevnet-2",
-      "location": "[parameters('rg_location')]",
+      "name": "mc-vm-vnet-01",
+      "location": "[parameters('location')]",
       "properties": {
         "addressSpace": {
           "addressPrefixes": [
@@ -54,12 +66,12 @@
       "type": "Microsoft.Network/publicIPAddresses",
       "apiVersion": "2017-06-01",
       "name": "[format('IP{0}', uniqueString(resourceGroup().id))]",
-      "location": "[parameters('rg_location')]",
+      "location": "[parameters('location')]",
       "properties": {
         "publicIPAllocationMethod": "Dynamic",
         "dnsSettings": {
           "domainNameLabel": "[parameters('dnsDomainName')]",
-          "fqdn": "[format('{0}{1}', parameters('dnsDomainName'), parameters('region'))]"
+          "fqdn": "[format('{0}{1}', parameters('dnsDomainName'), parameters('location'))]"
         }
       }
     },
@@ -67,7 +79,7 @@
       "type": "Microsoft.Web/serverfarms",
       "apiVersion": "2022-03-01",
       "name": "[format('asp-{0}', uniqueString(resourceGroup().id))]",
-      "location": "[parameters('rg_location')]",
+      "location": "[parameters('location')]",
       "kind": "app,linux",
       "properties": {
         "reserved": true
@@ -78,10 +90,16 @@
       }
     },
     {
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "apiVersion": "2022-01-31-preview",
+      "name": "[variables('managedIdentityName')]",
+      "location": "[parameters('location')]"
+    },
+    {
       "type": "Microsoft.Storage/storageAccounts",
       "apiVersion": "2021-02-01",
       "name": "[variables('storName')]",
-      "location": "[parameters('region')]",
+      "location": "[parameters('location')]",
       "sku": {
         "name": "Standard_LRS"
       },
@@ -108,10 +126,25 @@
       }
     },
     {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[format('Microsoft.Storage/storageAccounts/{0}', variables('storName'))]",
+      "name": "[variables('roleAssignmentGuid')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))).principalId]",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storName'))]"
+      ]
+    },
+    {
       "type": "Microsoft.Storage/storageAccounts",
       "apiVersion": "2021-02-01",
       "name": "[variables('storName2')]",
-      "location": "[parameters('region')]",
+      "location": "[parameters('location')]",
       "sku": {
         "name": "Standard_LRS"
       },
@@ -142,7 +175,7 @@
       "apiVersion": "2021-01-15",
       "name": "[variables('functionName')]",
       "kind": "functionapp,linux",
-      "location": "[parameters('rg_location')]",
+      "location": "[parameters('location')]",
       "properties": {
         "enabled": true,
         "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', format('asp-{0}', uniqueString(resourceGroup().id)))]",
@@ -170,13 +203,36 @@
             {
               "name": "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING",
               "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};EndpointSuffix={1};AccountKey={2}', variables('storName2'), environment().suffixes.storage, listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storName2')), '2021-02-01').keys[0].value)]"
+            },
+            {
+              "name": "IpAddressResourceId",
+              "value": "[resourceId('Microsoft.Network/publicIPAddresses', format('IP{0}', uniqueString(resourceGroup().id)))]"
+            },
+            {
+              "name": "ManagedIdentityResourceId",
+              "value": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]"
+            },
+            {
+              "name": "WorldStorageAccountName",
+              "value": "[variables('storName')]"
+            },
+            {
+              "name": "VMAdminUserName",
+              "value": "[parameters('vmAdminUserName')]"
+            },
+            {
+              "name": "VMAdminPassword",
+              "value": "[parameters('vmAdminPassword')]"
             }
           ]
         }
       },
       "dependsOn": [
         "[resourceId('Microsoft.Web/serverfarms', format('asp-{0}', uniqueString(resourceGroup().id)))]",
-        "[resourceId('Microsoft.Storage/storageAccounts', variables('storName2'))]"
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storName2'))]",
+        "[resourceId('Microsoft.Network/publicIPAddresses', format('IP{0}', uniqueString(resourceGroup().id)))]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storName'))]"
       ]
     },
     {
@@ -194,7 +250,7 @@
       "type": "Microsoft.EventGrid/topics",
       "apiVersion": "2022-06-15",
       "name": "[variables('EventGridName')]",
-      "location": "[parameters('rg_location')]",
+      "location": "[parameters('location')]",
       "properties": {
         "inputSchema": "EventGridSchema",
         "publicNetworkAccess": "Enabled",
@@ -202,6 +258,31 @@
         "disableLocalAuth": false,
         "dataResidencyBoundary": "WithinGeopair"
       }
+    },
+    {
+      "type": "Microsoft.EventGrid/topics/eventSubscriptions",
+      "apiVersion": "2022-06-15",
+      "name": "[format('{0}/{1}', variables('EventGridName'), variables('eventSubName'))]",
+      "properties": {
+        "destination": {
+          "properties": {
+            "resourceId": "[format('{0}/functions/VMDeployer', resourceId('Microsoft.Web/sites', variables('functionName')))]",
+            "maxEventsPerBatch": 1,
+            "preferredBatchSizeInKilobytes": 64
+          },
+          "endpointType": "AzureFunction"
+        },
+        "filter": {
+          "includedEventTypes": [
+            "start-server"
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.EventGrid/topics', variables('EventGridName'))]",
+        "[resourceId('Microsoft.Web/sites', variables('functionName'))]",
+        "[resourceId('Microsoft.Web/sites/extensions', variables('functionName'), 'zipdeploy')]"
+      ]
     }
   ]
 }
